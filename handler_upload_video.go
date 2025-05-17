@@ -78,13 +78,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Save the video to a temporary file
-	tmpFile, err := os.CreateTemp("", "tubely-upload.mp4")
+	tmpFile, err := os.CreateTemp("", "tubely-upload-*.mp4")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create temporary file", err)
 		return
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+
 	_, err = io.Copy(tmpFile, file)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't save video", err)
@@ -96,6 +95,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't seek to beginning of file", err)
 		return
 	}
+	defer tmpFile.Close()
 
 	// Generate a unique file name
 	videoFileID := make([]byte, 32)
@@ -104,8 +104,32 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't generate random bytes", err)
 		return
 	}
+
+	fmt.Println("Temp file path:", tmpFile.Name())
+	if _, err := os.Stat(tmpFile.Name()); err != nil {
+		fmt.Println("Temp file stat error:", err)
+	}
+	// Get the aspect ratio of the video
+	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get video aspect ratio", err)
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+
+	// Set the subdirectory for the video
+	var subdirectory string
+	switch aspectRatio {
+	case "16:9":
+		subdirectory = "landscape"
+	case "9:16":
+		subdirectory = "portrait"
+	default:
+		subdirectory = "other"
+	}
+
 	// Convert the thumbnailID to a string and adds the file extension
-	videoFileIDString := base64.RawURLEncoding.EncodeToString(videoFileID) + ".mp4"
+	videoFileIDString := subdirectory + "/" + base64.RawURLEncoding.EncodeToString(videoFileID) + ".mp4"
 
 	// Put the file in S3
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
