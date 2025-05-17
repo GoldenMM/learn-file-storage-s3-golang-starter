@@ -36,8 +36,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	// TODO: implement the upload here
-
 	// Set a max memory and parse the form
 	maxMemory := int64(10 << 20) // 10 MB
 	err = r.ParseMultipartForm(maxMemory)

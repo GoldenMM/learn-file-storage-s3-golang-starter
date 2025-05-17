@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 
 	"github.com/joho/godotenv"
@@ -21,6 +24,7 @@ type apiConfig struct {
 	s3Region         string
 	s3CfDistribution string
 	port             string
+	s3Client         *s3.Client
 }
 
 func main() {
@@ -76,6 +80,17 @@ func main() {
 		log.Fatal("PORT environment variable is not set")
 	}
 
+	// Load the AWS credentials from the environment variables
+	// The AWS SDK for Go will automatically look for the credentials in the
+	// AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables
+	// or in the shared credentials file (usually located at ~/.aws/credentials)
+	config, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(s3Region))
+	if err != nil {
+		log.Fatalf("Couldn't load AWS credentials: %v", err)
+	}
+	// Create a new S3 client
+	client := s3.NewFromConfig(config)
+
 	cfg := apiConfig{
 		db:               db,
 		jwtSecret:        jwtSecret,
@@ -86,6 +101,7 @@ func main() {
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
 		port:             port,
+		s3Client:         client,
 	}
 
 	err = cfg.ensureAssetsDir()
