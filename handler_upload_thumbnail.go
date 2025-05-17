@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -51,13 +52,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 	contentType := header.Header.Get("Content-Type")
 
-	// Convert the file to a byte array
-	fileData, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't read file", err)
-		return
-	}
-
 	// Get the video's meta-data from the database
 	dbVideo, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -69,16 +63,35 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "You don't own this video", nil)
 		return
 	}
-	// Save the new thumbnail to the database
-	encodedThumbnail := base64.StdEncoding.EncodeToString(fileData)
-	dataURL := fmt.Sprintf("data:%s;base64,%s", contentType, encodedThumbnail)
-	dbVideo.ThumbnailURL = &dataURL
+	// Create the file path for the thumbnail
+	extention := contentType[6:] // remove the "image/" part
+	thumbnailFilePath := filepath.Join(cfg.assetsRoot, videoIDString+"."+extention)
+	fmt.Println("thumbnail file path: ", thumbnailFilePath)
 
+	// Create the thumbnail file
+	thumbnailFile, err := os.Create(thumbnailFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create thumbnail file", err)
+		return
+	}
+
+	// Write the file data to the thumbnail file
+	_, err = io.Copy(thumbnailFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't copy file", err)
+		return
+	}
+	defer thumbnailFile.Close()
+
+	// Save the new thumbnail url to the database
+	thumbnailURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoIDString, extention)
+	dbVideo.ThumbnailURL = &thumbnailURL
 	err = cfg.db.UpdateVideo(dbVideo)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video", err)
 		return
 	}
+
 	// Respond with the videos meta-data
 	respondWithJSON(w, http.StatusOK, dbVideo)
 
