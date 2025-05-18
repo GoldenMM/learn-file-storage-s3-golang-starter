@@ -105,19 +105,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	fmt.Println("Temp file path:", tmpFile.Name())
+	// Check if the file exists
 	if _, err := os.Stat(tmpFile.Name()); err != nil {
 		fmt.Println("Temp file stat error:", err)
 	}
+
 	// Get the aspect ratio of the video
 	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't get video aspect ratio", err)
 		return
 	}
-	defer os.Remove(tmpFile.Name())
-
-	// Set the subdirectory for the video
+	// Set the subdirectory for the video based on the aspect ratio
 	var subdirectory string
 	switch aspectRatio {
 	case "16:9":
@@ -128,14 +127,32 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		subdirectory = "other"
 	}
 
-	// Convert the thumbnailID to a string and adds the file extension
-	videoFileIDString := subdirectory + "/" + base64.RawURLEncoding.EncodeToString(videoFileID) + ".mp4"
+	// Process the video for fast start
+	processedFileIDString, err := processVideoForFastStart(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't process video for fast start", err)
+		return
+	}
+	// Close the temporary file
+	defer tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	// open the processed file
+	processedFile, err := os.Open(processedFileIDString)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't open processed file", err)
+		return
+	}
+	defer processedFile.Close()
+
+	// Convert the processedFileID to a string and adds the file extension
+	videoFileIDString := subdirectory + "/" + base64.RawURLEncoding.EncodeToString([]byte(videoFileID)) + ".mp4"
 
 	// Put the file in S3
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         aws.String(videoFileIDString),
-		Body:        tmpFile,
+		Body:        processedFile,
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
